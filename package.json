@@ -39,6 +39,10 @@
       {
         "command": "cursor-ai-tts.toggleAutoRead",
         "title": "Toggle Auto-Read for AI Responses"
+      },
+      {
+        "command": "cursor-ai-tts.injectChatObserver",
+        "title": "Manually Inject Chat Observer (Debug)"
       }
     ],
     "configuration": {
@@ -53,6 +57,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically read AI responses when detected"
+        },
+        "cursor-ai-tts.readClipboard": {
+          "type": "boolean",
+          "default": false,
+          "description": "Monitor clipboard for potential AI responses and read them"
         },
         "cursor-ai-tts.voice": {
           "type": "string",
@@ -84,13 +93,19 @@
       {
         "command": "cursor-ai-tts.readLastResponse",
         "key": "alt+r",
-        "mac": "alt+r",
+        "mac": "option+r",
         "when": "editorTextFocus || webviewFocus"
       },
       {
         "command": "cursor-ai-tts.toggleAutoRead",
         "key": "alt+shift+r",
-        "mac": "alt+shift+r",
+        "mac": "option+shift+r",
+        "when": "editorTextFocus || webviewFocus"
+      },
+      {
+        "command": "cursor-ai-tts.injectChatObserver",
+        "key": "alt+shift+i",
+        "mac": "option+shift+i",
         "when": "editorTextFocus || webviewFocus"
       }
     ]
