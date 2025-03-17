@@ -37,6 +37,26 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cursor-ai-tts.readLastResponse', () => {
+            if (ttsPanel) {
+                ttsPanel.webview.postMessage({
+                    command: 'readLastResponse'
+                });
+            } else if (ttsEnabled) {
+                ensureTTSPanelExists(context);
+                // Delay to ensure panel is created before sending command
+                setTimeout(() => {
+                    if (ttsPanel) {
+                        ttsPanel.webview.postMessage({
+                            command: 'readLastResponse'
+                        });
+                    }
+                }, 1000);
+            }
+        })
+    );
+
     // Create TTS panel if enabled
     if (ttsEnabled) {
         ensureTTSPanelExists(context);
@@ -103,6 +123,9 @@ function ensureTTSPanelExists(context: vscode.ExtensionContext) {
             case 'log':
                 console.log('TTS Webview:', message.text);
                 break;
+            case 'debug':
+                vscode.window.showInformationMessage(`TTS Debug: ${message.text}`);
+                break;
         }
     });
 }
@@ -119,7 +142,10 @@ function setupTTSObserver() {
             '.chat-entry[data-role="assistant"]',
             '.message-container[data-sender="assistant"]',
             '.agent-turn',
-            '.chat-message-ai'
+            '.chat-message-ai',
+            '.message-block',
+            '.claude-message',
+            '[data-message-author-type="ai"]'
         ]
     });
 }
@@ -189,12 +215,29 @@ function getTTSPanelContent() {
                 padding: 5px 10px;
                 cursor: pointer;
                 border-radius: 2px;
+                margin-right: 5px;
+                margin-bottom: 5px;
             }
             button:hover {
                 background-color: var(--vscode-button-hoverBackground);
             }
             .hidden {
                 display: none;
+            }
+            .button-row {
+                display: flex;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+            }
+            #debug-info {
+                font-family: monospace;
+                white-space: pre-wrap;
+                font-size: 12px;
+                margin-top: 10px;
+                padding: 5px;
+                border: 1px solid var(--vscode-editor-lineHighlightBorder);
+                max-height: 100px;
+                overflow: auto;
             }
         </style>
     </head>
@@ -217,14 +260,35 @@ function getTTSPanelContent() {
                 </label>
             </div>
             
-            <button id="stop-button">Stop Speech</button>
+            <div class="button-row">
+                <button id="read-last-button">Read Last Response</button>
+                <button id="stop-button">Stop Speech</button>
+                <button id="test-voices-button">Test Voice</button>
+            </div>
         </div>
         
         <div id="status">
-            TTS service running. Waiting for AI responses...
+            TTS service initializing...
         </div>
         
+        <div id="debug-info"></div>
+        
         <script>
+            // Debug logger
+            const debugLog = [];
+            function log(message) {
+                console.log(message);
+                debugLog.push(new Date().toISOString().substring(11, 19) + ': ' + message);
+                if (debugLog.length > 10) debugLog.shift();
+                document.getElementById('debug-info').textContent = debugLog.join('\\n');
+                
+                // Also send to extension
+                vscode.postMessage({
+                    command: 'log',
+                    text: message
+                });
+            }
+            
             // TTS Service implementation
             class TTSService {
                 constructor() {
@@ -245,16 +309,22 @@ function getTTSPanelContent() {
                     this.currentUtterance = null;
                     this.textQueue = [];
                     this.isSpeaking = false;
+                    this.observer = null;
                     
                     // Initialize voice selector
                     this.populateVoiceList();
                     
                     // Set up UI events
                     this.setupUIEvents();
+                    
+                    // Debug voice status
+                    log('Speech synthesis available: ' + (this.synth !== undefined));
+                    log('Initial voices count: ' + this.voices.length);
                 }
                 
                 loadVoices() {
                     this.voices = this.synth.getVoices();
+                    log('Voices loaded: ' + this.voices.length);
                     
                     if (this.voices.length > 0) {
                         // Prefer English voices if available
@@ -359,15 +429,33 @@ function getTTSPanelContent() {
                         });
                     });
                     
+                    // Read last button
+                    const readLastButton = document.getElementById('read-last-button');
+                    readLastButton.addEventListener('click', () => {
+                        this.readLastResponse();
+                    });
+                    
                     // Stop button
                     const stopButton = document.getElementById('stop-button');
                     stopButton.addEventListener('click', () => {
                         this.stop();
                     });
                     
+                    // Test voices button
+                    const testButton = document.getElementById('test-voices-button');
+                    testButton.addEventListener('click', () => {
+                        this.testVoice();
+                    });
+                    
                     // Update initial UI state
                     rateValue.textContent = this.rate.toFixed(1);
                     pitchValue.textContent = this.pitch.toFixed(1);
+                }
+                
+                testVoice() {
+                    const testText = "This is a test of the Cursor AI Text to Speech system.";
+                    this.speak(testText);
+                    log('Test voice: ' + (this.voice ? this.voice.name : 'Default'));
                 }
                 
                 getVoices() {
@@ -378,6 +466,7 @@ function getTTSPanelContent() {
                     const voice = this.voices.find(v => v.name === name);
                     if (voice) {
                         this.voice = voice;
+                        log('Voice set to: ' + voice.name);
                     }
                 }
                 
@@ -428,7 +517,13 @@ function getTTSPanelContent() {
                 speak(text) {
                     this.stop();
                     
+                    if (!text || text.trim() === '') {
+                        log('Empty text provided, nothing to speak');
+                        return;
+                    }
+                    
                     updateStatus(\`Speaking: \${text.substring(0, 50)}...\`);
+                    log('Speaking text: ' + text.substring(0, 30) + '...');
                     
                     this.textQueue = this.segmentText(text);
                     this.speakNextSegment();
@@ -458,12 +553,14 @@ function getTTSPanelContent() {
                         } else {
                             this.isSpeaking = false;
                             updateStatus('TTS service running. Waiting for AI responses...');
+                            log('Finished speaking');
                         }
                     };
                     
                     utterance.onerror = (event) => {
                         console.error('SpeechSynthesis error:', event);
                         updateStatus(\`Error: \${event.error}\`);
+                        log('Speech error: ' + event.error);
                         this.isSpeaking = false;
                     };
                     
@@ -488,37 +585,218 @@ function getTTSPanelContent() {
                     this.textQueue = [];
                     this.synth.cancel();
                     this.isSpeaking = false;
+                    log('Speech stopped');
                 }
                 
                 isCurrentlySpeaking() {
                     return this.isSpeaking;
                 }
                 
+                setupObserver(selectors) {
+                    log('Setting up MutationObserver with selectors: ' + selectors.join(', '));
+                    
+                    // Try to access the main window to observe
+                    try {
+                        // First attempt to set up an actual observer
+                        this.setupMutationObserver(selectors);
+                        
+                        // Set up polling as fallback
+                        this.setupMessagePolling();
+                        
+                        updateStatus('TTS ready - watching for AI messages');
+                    } catch (error) {
+                        log('Error setting up observer: ' + error.message);
+                        updateStatus('TTS ready - using fallback methods');
+                    }
+                }
+                
+                setupMutationObserver(selectors) {
+                    // Clean up existing observer if any
+                    if (this.observer) {
+                        this.observer.disconnect();
+                    }
+                    
+                    // Create a new observer
+                    this.observer = new MutationObserver((mutations) => {
+                        for (const mutation of mutations) {
+                            if (mutation.type === 'childList' && mutation.addedNodes.length) {
+                                // Check if any of the added nodes matches our selectors
+                                mutation.addedNodes.forEach(node => {
+                                    if (node.nodeType === Node.ELEMENT_NODE) {
+                                        // Check if the node itself matches
+                                        const element = node as Element;
+                                        for (const selector of selectors) {
+                                            if (element.matches(selector)) {
+                                                log('Found new AI message: ' + selector);
+                                                this.processMessage(element);
+                                                return;
+                                            }
+                                            
+                                            // Check if any children match
+                                            const matchingChildren = element.querySelectorAll(selector);
+                                            if (matchingChildren.length) {
+                                                log('Found new AI message (child): ' + selector);
+                                                this.processMessage(matchingChildren[matchingChildren.length - 1]);
+                                                return;
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    
+                    // Start observing
+                    try {
+                        this.observer.observe(document.body, {
+                            childList: true,
+                            subtree: true
+                        });
+                        log('Mutation observer started successfully');
+                    } catch (error) {
+                        log('Failed to start mutation observer: ' + error.message);
+                    }
+                }
+                
+                setupMessagePolling() {
+                    // Set up periodic check for messages every 2 seconds
+                    setInterval(() => {
+                        this.checkForNewMessages();
+                    }, 2000);
+                    log('Message polling started');
+                }
+                
+                checkForNewMessages() {
+                    // Get timestamp to compare
+                    const now = new Date().getTime();
+                    const threshold = now - 5000; // Messages within last 5 seconds
+                    
+                    try {
+                        // Check for date/time elements which might indicate a new message
+                        const timeElements = document.querySelectorAll('time, [datetime], .timestamp, [data-timestamp]');
+                        for (const el of timeElements) {
+                            const timestamp = el.getAttribute('datetime') || el.getAttribute('data-timestamp');
+                            if (timestamp && new Date(timestamp).getTime() > threshold) {
+                                // Found a recent message, look for parent AI message
+                                const parent = el.closest('.ai-message, .cursor-chat-message-ai, [data-role="assistant"], [data-sender="assistant"], .agent-turn, .chat-message-ai');
+                                if (parent) {
+                                    log('Found new AI message via polling');
+                                    this.processMessage(parent);
+                                    return;
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        log('Error in message polling: ' + error.message);
+                    }
+                }
+                
+                readLastResponse() {
+                    log('Manual read last response triggered');
+                    
+                    try {
+                        // Try to find the latest AI message using our selectors
+                        const selectors = [
+                            '.cursor-chat-message-ai',
+                            '.ai-message',
+                            '.chat-entry[data-role="assistant"]',
+                            '.message-container[data-sender="assistant"]',
+                            '.agent-turn',
+                            '.chat-message-ai',
+                            '.message-block',
+                            '.claude-message',
+                            '[data-message-author-type="ai"]'
+                        ];
+                        
+                        // Find all elements matching our selectors
+                        let allMatches = [];
+                        for (const selector of selectors) {
+                            const matches = document.querySelectorAll(selector);
+                            if (matches.length) {
+                                allMatches = [...allMatches, ...Array.from(matches)];
+                            }
+                        }
+                        
+                        if (allMatches.length > 0) {
+                            // Get the last match which is likely the most recent message
+                            const lastMatch = allMatches[allMatches.length - 1];
+                            log('Found AI message to read: ' + lastMatch.className);
+                            this.processMessage(lastMatch);
+                        } else {
+                            // Try to find any readable content
+                            const mainContent = document.querySelector('.message-content, .message-body, .message-text, .chat-content');
+                            if (mainContent) {
+                                log('Using generic content selector as fallback');
+                                this.processMessage(mainContent);
+                            } else {
+                                log('No AI message found to read');
+                                updateStatus('No AI message found to read');
+                                
+                                // As a last resort, try reading from the active editor
+                                this.tryReadingFromActiveEditor();
+                            }
+                        }
+                    } catch (error) {
+                        log('Error reading last response: ' + error.message);
+                        updateStatus('Error: ' + error.message);
+                    }
+                }
+                
+                tryReadingFromActiveEditor() {
+                    // Try to read from the editor content
+                    log('Attempting to read from active editor');
+                    
+                    try {
+                        // VS Code-like editors often have the content in .editor div
+                        const editorContent = document.querySelector('.editor, .view-lines, .monaco-editor');
+                        if (editorContent) {
+                            const text = this.extractTextContent(editorContent);
+                            if (text && text.length > 20) { // Avoid reading small snippets
+                                log('Reading from editor content');
+                                this.speak(text);
+                            }
+                        }
+                    } catch (error) {
+                        log('Error reading from editor: ' + error.message);
+                    }
+                }
+                
                 processMessage(element) {
                     if (!element) return;
+                    
+                    log('Processing message element: ' + element.className);
                     
                     // Extract text content (excluding code blocks if option enabled)
                     const text = this.extractTextContent(element);
                     
                     if (text) {
+                        log('Extracted text length: ' + text.length);
                         this.speak(text);
+                    } else {
+                        log('No text content found in element');
                     }
                 }
                 
                 extractTextContent(element) {
-                    // Clone the element to work with
-                    const clonedElement = element.cloneNode(true);
-                    
-                    // If filtering code blocks, remove them
-                    if (this.filterCodeBlocks) {
-                        const codeBlocks = clonedElement.querySelectorAll('pre, code');
-                        codeBlocks.forEach(codeBlock => {
-                            codeBlock.remove();
-                        });
+                    try {
+                        // Clone the element to work with
+                        const clonedElement = element.cloneNode(true);
+                        
+                        // If filtering code blocks, remove them
+                        if (this.filterCodeBlocks) {
+                            const codeBlocks = clonedElement.querySelectorAll('pre, code, .code-block, .hljs');
+                            codeBlocks.forEach(codeBlock => {
+                                codeBlock.remove();
+                            });
+                        }
+                        
+                        // Get text content
+                        const text = clonedElement.textContent.trim();
+                        return text;
+                    } catch (error) {
+                        log('Error extracting text: ' + error.message);
+                        return '';
                     }
-                    
-                    // Get text content
-                    return clonedElement.textContent.trim();
                 }
             }
             
@@ -536,10 +814,12 @@ function getTTSPanelContent() {
             
             // Send ready message to extension
             vscode.postMessage({ command: 'ready' });
+            log('TTS service initialized, ready message sent');
             
             // Listen for messages from the extension
             window.addEventListener('message', event => {
                 const message = event.data;
+                log('Received message: ' + message.command);
                 
                 switch (message.command) {
                     case 'speak':
@@ -548,6 +828,10 @@ function getTTSPanelContent() {
                         
                     case 'stop':
                         ttsService.stop();
+                        break;
+                        
+                    case 'readLastResponse':
+                        ttsService.readLastResponse();
                         break;
                         
                     case 'updateSettings':
@@ -566,16 +850,20 @@ function getTTSPanelContent() {
                         break;
                         
                     case 'setupObserver':
-                        // We can't directly observe DOM in VS Code extension, 
-                        // but in a real implementation we would set up listeners here
-                        updateStatus('TTS ready - simulating observer for AI messages');
-                        vscode.postMessage({ 
-                            command: 'log',
-                            text: 'Observer would be set up with selectors: ' + message.selectors.join(', ')
-                        });
+                        ttsService.setupObserver(message.selectors);
                         break;
                 }
             });
+            
+            // Send debug info to extension
+            setInterval(() => {
+                if (ttsService.synth) {
+                    vscode.postMessage({
+                        command: 'debug', 
+                        text: \`Speaking: \${ttsService.synth.speaking}, Paused: \${ttsService.synth.paused}, Pending: \${ttsService.synth.pending}\`
+                    });
+                }
+            }, 5000);
         </script>
     </body>
     </html>`;
