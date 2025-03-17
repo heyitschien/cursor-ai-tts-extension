@@ -35,6 +35,10 @@
       {
         "command": "cursor-ai-tts.aiResponseDetected",
         "title": "AI Response Detected (Internal)"
+      },
+      {
+        "command": "cursor-ai-tts.toggleAutoRead",
+        "title": "Toggle Auto-Read for AI Responses"
       }
     ],
     "configuration": {
@@ -44,6 +48,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable text-to-speech for AI responses"
+        },
+        "cursor-ai-tts.autoRead": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically read AI responses when detected"
         },
         "cursor-ai-tts.voice": {
           "type": "string",
@@ -70,7 +79,21 @@
           "description": "Skip code blocks when reading AI responses"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "cursor-ai-tts.readLastResponse",
+        "key": "alt+r",
+        "mac": "alt+r",
+        "when": "editorTextFocus || webviewFocus"
+      },
+      {
+        "command": "cursor-ai-tts.toggleAutoRead",
+        "key": "alt+shift+r",
+        "mac": "alt+shift+r",
+        "when": "editorTextFocus || webviewFocus"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

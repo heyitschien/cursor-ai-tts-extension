@@ -4,6 +4,7 @@ import { getConfiguration, logDebug, showInfo } from './utils';
 
 // Store global state
 let ttsEnabled = true;
+let autoReadEnabled = true;
 let ttsPanel: vscode.WebviewPanel | undefined;
 let lastAIResponseText: string = '';
 
@@ -14,6 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Load configuration
     const config = getConfiguration();
     ttsEnabled = config.get('enabled') as boolean;
+    autoReadEnabled = config.get('autoRead') as boolean;
 
     // Register commands
     context.subscriptions.push(
@@ -69,6 +71,15 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Add new command for toggling auto-read
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cursor-ai-tts.toggleAutoRead', () => {
+            autoReadEnabled = !autoReadEnabled;
+            getConfiguration().update('autoRead', autoReadEnabled, true);
+            showInfo(`Auto-read ${autoReadEnabled ? 'enabled' : 'disabled'}`);
+        })
+    );
+
     // Register a command to receive AI responses from chat interface
     context.subscriptions.push(
         vscode.commands.registerCommand('cursor-ai-tts.aiResponseDetected', (text: string) => {
@@ -76,8 +87,8 @@ export function activate(context: vscode.ExtensionContext) {
                 logDebug(`Received AI response from chat interface: ${text.substring(0, 50)}...`);
                 lastAIResponseText = text;
                 
-                // If TTS is enabled and we have a panel, speak it
-                if (ttsEnabled && ttsPanel) {
+                // If TTS is enabled, panel exists, and auto-read is on, speak it
+                if (ttsEnabled && ttsPanel && autoReadEnabled) {
                     ttsPanel.webview.postMessage({
                         command: 'forceSpeech',
                         text: text

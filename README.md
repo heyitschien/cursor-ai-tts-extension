@@ -9,7 +9,8 @@ A Visual Studio Code extension that adds Text-to-Speech capabilities to Cursor A
 - Adjust speech rate and pitch
 - Option to skip code blocks when reading
 - Simple UI to control TTS settings
-- Easily enable/disable the feature with commands
+- Auto-read responses as they arrive
+- Easily enable/disable the feature with commands or keyboard shortcuts
 
 ## Requirements
 
@@ -39,41 +40,43 @@ Once installed, the extension will automatically read aloud responses from the C
 
 - `Enable Text-to-Speech for AI Responses`: Enable TTS
 - `Disable Text-to-Speech for AI Responses`: Disable TTS
+- `Toggle Auto-Read for AI Responses`: Turn auto-reading on/off
+- `Read Last AI Response`: Manually read the last detected AI response
 - `Show Text-to-Speech Settings`: Open settings page
+
+### Keyboard Shortcuts
+
+- `Alt+R`: Read the last AI response
+- `Alt+Shift+R`: Toggle auto-read feature on/off
 
 ## Extension Settings
 
 This extension contributes the following settings:
 
 - `cursor-ai-tts.enabled`: Enable or disable text-to-speech for AI responses
+- `cursor-ai-tts.autoRead`: Automatically read AI responses when detected
 - `cursor-ai-tts.voice`: Preferred voice for text-to-speech
 - `cursor-ai-tts.rate`: Speech rate (0.5 to 2.0)
 - `cursor-ai-tts.pitch`: Speech pitch (0.5 to 2.0)
 - `cursor-ai-tts.filterCodeBlocks`: Skip code blocks when reading AI responses
 
-## Known Issues
-
-- The extension can't detect all AI responses if their DOM structure changes significantly
-- Some voices may not render code terms correctly
-
-## Release Notes
-
-### 0.1.0
-
-- Initial release
-- Basic TTS functionality for Cursor AI responses
-- Settings for controlling voice, rate, pitch, and code block handling
-
-## License
-
-This extension is licensed under the [MIT License](LICENSE)
-
 ## Chat Interface Integration
 
-To hear responses from the Cursor AI chat interface, you can create a custom script to send AI responses to the TTS extension. Here's how:
+To hear responses from the Cursor AI chat interface, you have these options:
 
-1. **Create a Script in the Chat Browser Environment:**
-   Open the developer console in the chat interface (F12 or Right-Click -> Inspect) and paste this script:
+### 1. Automatic Integration (Recommended)
+
+- Make sure auto-read is enabled (default setting)
+- Use the chat as normal, and responses should be read automatically
+- If auto-read isn't working, use `Alt+R` to read the last response
+- Toggle auto-read on/off with `Alt+Shift+R`
+
+### 2. Manual Script Injection 
+
+If the automatic integration isn't working, you can manually inject the observer script:
+
+1. Open the developer console in the chat interface (F12 or Right-Click -> Inspect)
+2. Paste this script:
 
    ```javascript
    // Observer for Cursor AI Chat interface
@@ -126,8 +129,31 @@ To hear responses from the Cursor AI chat interface, you can create a custom scr
    })();
    ```
 
-2. **Alternative Method for Chat Detection:**
-   If the above script doesn't work, you can manually copy AI responses and use the "Read Last AI Response" command from the command palette.
+### 3. Alternative Method
 
-3. **Requesting Extension API Access:**
-   We're working on better integration with the Cursor AI chat interface. Future versions may include direct integration without requiring custom scripts.
+If all else fails, you can manually copy AI responses and trigger reading with `Alt+R`.
+
+## Known Issues
+
+- The extension can't detect all AI responses if their DOM structure changes significantly
+- Some voices may not render code terms correctly
+- Chat detection may require manual script injection in some cases
+
+## Release Notes
+
+### 0.2.0
+
+- Added auto-read feature for AI responses
+- Added keyboard shortcuts for reading and toggling auto-read
+- Improved chat detection methods
+- Enhanced documentation
+
+### 0.1.0
+
+- Initial release
+- Basic TTS functionality for Cursor AI responses
+- Settings for controlling voice, rate, pitch, and code block handling
+
+## License
+
+This extension is licensed under the [MIT License](LICENSE)
