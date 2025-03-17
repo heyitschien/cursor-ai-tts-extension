@@ -45,11 +45,11 @@ Once installed, the extension will automatically read aloud responses from the C
 
 This extension contributes the following settings:
 
-* `cursor-ai-tts.enabled`: Enable or disable text-to-speech for AI responses
-* `cursor-ai-tts.voice`: Preferred voice for text-to-speech
-* `cursor-ai-tts.rate`: Speech rate (0.5 to 2.0)
-* `cursor-ai-tts.pitch`: Speech pitch (0.5 to 2.0)
-* `cursor-ai-tts.filterCodeBlocks`: Skip code blocks when reading AI responses
+- `cursor-ai-tts.enabled`: Enable or disable text-to-speech for AI responses
+- `cursor-ai-tts.voice`: Preferred voice for text-to-speech
+- `cursor-ai-tts.rate`: Speech rate (0.5 to 2.0)
+- `cursor-ai-tts.pitch`: Speech pitch (0.5 to 2.0)
+- `cursor-ai-tts.filterCodeBlocks`: Skip code blocks when reading AI responses
 
 ## Known Issues
 
@@ -66,4 +66,4 @@ This extension contributes the following settings:
 
 ## License
 
-This extension is licensed under the [MIT License](LICENSE). 
+This extension is licensed under the [MIT License](LICENSE).

@@ -435,6 +435,17 @@ function getTTSPanelContent() {
                             option.textContent = 'No voices available';
                             voiceSelect.appendChild(option);
                             log('Added "No voices available" placeholder');
+                            
+                            // Try to fetch voices directly and update
+                            setTimeout(() => {
+                                const directVoices = window.speechSynthesis.getVoices();
+                                if (directVoices.length > 0) {
+                                    this.voices = directVoices;
+                                    log('Got ' + directVoices.length + ' voices directly');
+                                    this.populateVoiceList();
+                                }
+                            }, 500);
+                            
                             return;
                         }
                         
@@ -603,8 +614,65 @@ function getTTSPanelContent() {
                 
                 testVoice() {
                     const testText = "This is a test of the Cursor AI Text to Speech system.";
-                    this.speak(testText);
-                    log('Test voice: ' + (this.voice ? this.voice.name : 'Default'));
+                    log('Test voice button clicked. Attempting to speak...');
+                    
+                    // Try to request audio permission first
+                    try {
+                        // Create an audio context to trigger browser permission prompt
+                        const audioCtx = new (window.AudioContext || window['webkitAudioContext'])();
+                        const oscillator = audioCtx.createOscillator();
+                        oscillator.connect(audioCtx.destination);
+                        oscillator.start();
+                        oscillator.stop(audioCtx.currentTime + 0.01);
+                        
+                        // Force speaking
+                        this.speakDirectly(testText);
+                    } catch (e) {
+                        log('Audio permission error: ' + e.message);
+                        this.showSpeechTroubleshooting();
+                    }
+                }
+                
+                speakDirectly(text) {
+                    // Direct approach without using queue
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    
+                    // Use ANY available voice as fallback
+                    if (this.voices.length > 0) {
+                        utterance.voice = this.voices[0];
+                        log('Using first available voice: ' + this.voices[0].name);
+                    } else {
+                        // Try forcing voice fetch
+                        const freshVoices = window.speechSynthesis.getVoices();
+                        log('Trying to get fresh voices, found: ' + freshVoices.length);
+                        if (freshVoices.length > 0) {
+                            this.voices = freshVoices;
+                            utterance.voice = freshVoices[0];
+                            // Update UI
+                            this.populateVoiceList();
+                        }
+                    }
+                    
+                    utterance.rate = this.rate;
+                    utterance.pitch = this.pitch;
+                    utterance.volume = 1.0;
+                    
+                    log('Attempting direct speech with' + (utterance.voice ? ' voice: ' + utterance.voice.name : 'out specific voice'));
+                    
+                    // Add event handlers
+                    utterance.onstart = () => log('Speech started!');
+                    utterance.onend = () => log('Speech ended');
+                    utterance.onerror = (e) => log('Speech error: ' + e.error);
+                    
+                    // Use window object directly
+                    try {
+                        window.speechSynthesis.cancel(); // Cancel any existing speech
+                        window.speechSynthesis.speak(utterance);
+                        updateStatus('Speaking directly: ' + text.substring(0, 30) + '...');
+                    } catch (e) {
+                        log('Direct speech failed: ' + e.message);
+                        this.showSpeechTroubleshooting();
+                    }
                 }
                 
                 getVoices() {
@@ -638,7 +706,7 @@ function getTTSPanelContent() {
                 
                 segmentText(text) {
                     // Split by sentences
-                    const sentences = text.split(/(?<=[.!?])\\s+/);
+                    const sentences = text.split(/(?<=[.!?])\s+/);
                     const segments = [];
                     let currentSegment = '';
                     
@@ -671,6 +739,15 @@ function getTTSPanelContent() {
                         return;
                     }
                     
+                    // Try direct speech first for reliability
+                    try {
+                        this.speakDirectly(text);
+                        return;
+                    } catch (e) {
+                        log('Direct speech failed, falling back to queue method: ' + e.message);
+                    }
+                    
+                    // Original queue-based approach as fallback
                     updateStatus('Speaking: ' + text.substring(0, 50) + '...');
                     log('Speaking text: ' + text.substring(0, 30) + '...');
                     
