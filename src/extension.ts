@@ -124,7 +124,7 @@ function ensureTTSPanelExists(context: vscode.ExtensionContext) {
                 console.log('TTS Webview:', message.text);
                 break;
             case 'debug':
-                vscode.window.showInformationMessage(`TTS Debug: ${message.text}`);
+                vscode.window.showInformationMessage('TTS Debug: ' + message.text);
                 break;
         }
     });
@@ -280,7 +280,7 @@ function getTTSPanelContent() {
                 console.log(message);
                 debugLog.push(new Date().toISOString().substring(11, 19) + ': ' + message);
                 if (debugLog.length > 10) debugLog.shift();
-                document.getElementById('debug-info').textContent = debugLog.join('\\n');
+                document.getElementById('debug-info').textContent = debugLog.join('\n');
                 
                 // Also send to extension
                 vscode.postMessage({
@@ -323,52 +323,201 @@ function getTTSPanelContent() {
                 }
                 
                 loadVoices() {
-                    this.voices = this.synth.getVoices();
-                    log('Voices loaded: ' + this.voices.length);
-                    
-                    if (this.voices.length > 0) {
-                        // Prefer English voices if available
-                        const englishVoices = this.voices.filter(voice => 
-                            voice.lang.startsWith('en-')
-                        );
+                    try {
+                        // Get current voices
+                        this.voices = this.synth.getVoices();
+                        log('loadVoices called, got ' + this.voices.length + ' voices');
                         
-                        if (englishVoices.length > 0) {
-                            this.voice = englishVoices[0];
+                        if (this.voices.length > 0) {
+                            // Prefer English voices if available
+                            const englishVoices = this.voices.filter(voice => 
+                                voice.lang.startsWith('en-')
+                            );
+                            
+                            if (englishVoices.length > 0) {
+                                this.voice = englishVoices[0];
+                                log('Selected default English voice: ' + this.voice.name);
+                            } else {
+                                this.voice = this.voices[0];
+                                log('No English voices found, using: ' + this.voice.name);
+                            }
+                            
+                            // Try to set saved voice preference
+                            const savedVoice = '${config.get('voice')}';
+                            if (savedVoice) {
+                                const voice = this.voices.find(v => v.name === savedVoice);
+                                if (voice) {
+                                    this.voice = voice;
+                                    log('Restored saved voice preference: ' + voice.name);
+                                }
+                            }
+                            
+                            // Populate the dropdown
+                            this.populateVoiceList();
                         } else {
-                            this.voice = this.voices[0];
-                        }
-                        
-                        // Try to set saved voice preference
-                        const savedVoice = '${config.get('voice')}';
-                        if (savedVoice) {
-                            const voice = this.voices.find(v => v.name === savedVoice);
-                            if (voice) {
-                                this.voice = voice;
+                            // If no voices are available yet, set up a listener for when they become available
+                            if (this.synth.onvoiceschanged !== undefined) {
+                                log('No voices available yet, waiting for voiceschanged event');
+                                this.synth.onvoiceschanged = () => {
+                                    log('voiceschanged event fired');
+                                    this.voices = this.synth.getVoices();
+                                    log('Now have ' + this.voices.length + ' voices');
+                                    
+                                    if (this.voices.length > 0) {
+                                        // Same voice selection logic as above
+                                        const englishVoices = this.voices.filter(voice => 
+                                            voice.lang.startsWith('en-')
+                                        );
+                                        
+                                        if (englishVoices.length > 0) {
+                                            this.voice = englishVoices[0];
+                                            log('Selected default English voice: ' + this.voice.name);
+                                        } else {
+                                            this.voice = this.voices[0];
+                                            log('No English voices found, using: ' + this.voice.name);
+                                        }
+                                        
+                                        // Try to set saved voice preference
+                                        const savedVoice = '${config.get('voice')}';
+                                        if (savedVoice) {
+                                            const voice = this.voices.find(v => v.name === savedVoice);
+                                            if (voice) {
+                                                this.voice = voice;
+                                                log('Restored saved voice preference: ' + voice.name);
+                                            }
+                                        }
+                                        
+                                        // Update the UI with the new voices
+                                        this.populateVoiceList();
+                                    } else {
+                                        log('WARNING: Still no voices available after voiceschanged event');
+                                    }
+                                };
+                            } else {
+                                // If onvoiceschanged is not supported, try to get voices after a delay
+                                log('onvoiceschanged not supported, will retry after delay');
+                                setTimeout(() => {
+                                    this.voices = this.synth.getVoices();
+                                    log('After delay, got ' + this.voices.length + ' voices');
+                                    if (this.voices.length > 0) {
+                                        this.populateVoiceList();
+                                        // Set default voice
+                                        this.voice = this.voices[0];
+                                        log('Using first available voice: ' + this.voice.name);
+                                    } else {
+                                        log('ERROR: No voices available after delay');
+                                        updateStatus('Error: No speech voices available on your system');
+                                    }
+                                }, 1000);
                             }
                         }
+                    } catch (error) {
+                        log('Error loading voices: ' + error.message);
                     }
-                    
-                    this.populateVoiceList();
                 }
                 
                 populateVoiceList() {
                     const voiceSelect = document.getElementById('voice-select');
-                    if (!voiceSelect) return;
+                    if (!voiceSelect) {
+                        log('Error: voice-select element not found');
+                        return;
+                    }
                     
-                    // Clear existing options
-                    voiceSelect.innerHTML = '';
-                    
-                    this.voices.forEach(voice => {
-                        const option = document.createElement('option');
-                        option.textContent = \`\${voice.name} (\${voice.lang})\`;
-                        option.setAttribute('data-voice-name', voice.name);
+                    try {
+                        // Clear existing options
+                        voiceSelect.innerHTML = '';
                         
-                        if (this.voice && voice.name === this.voice.name) {
-                            option.selected = true;
+                        log('Populating voice list with ' + this.voices.length + ' voices');
+                        
+                        // Add a placeholder if no voices
+                        if (this.voices.length === 0) {
+                            const option = document.createElement('option');
+                            option.textContent = 'No voices available';
+                            voiceSelect.appendChild(option);
+                            log('Added "No voices available" placeholder');
+                            return;
                         }
                         
-                        voiceSelect.appendChild(option);
-                    });
+                        // Group voices by language
+                        const voicesByLang = {};
+                        this.voices.forEach(voice => {
+                            if (!voicesByLang[voice.lang]) {
+                                voicesByLang[voice.lang] = [];
+                            }
+                            voicesByLang[voice.lang].push(voice);
+                        });
+                        
+                        // Create optgroups for each language
+                        const languages = Object.keys(voicesByLang).sort();
+                        
+                        // English voices first
+                        const englishLangs = languages.filter(lang => lang.startsWith('en-'));
+                        const otherLangs = languages.filter(lang => !lang.startsWith('en-'));
+                        const orderedLangs = [...englishLangs, ...otherLangs];
+                        
+                        orderedLangs.forEach(lang => {
+                            const voices = voicesByLang[lang];
+                            const langName = this.getLanguageName(lang);
+                            
+                            const optgroup = document.createElement('optgroup');
+                            optgroup.label = langName + ' (' + voices.length + ')';
+                            
+                            voices.forEach(voice => {
+                                const option = document.createElement('option');
+                                option.textContent = voice.name;
+                                option.setAttribute('data-voice-name', voice.name);
+                                
+                                if (this.voice && voice.name === this.voice.name) {
+                                    option.selected = true;
+                                    log('Set selected voice in dropdown: ' + voice.name);
+                                }
+                                
+                                optgroup.appendChild(option);
+                            });
+                            
+                            voiceSelect.appendChild(optgroup);
+                        });
+                        
+                        log('Voice list populated successfully');
+                        
+                        // Ensure the current voice is visible in the dropdown
+                        if (this.voice) {
+                            const selectedOption = voiceSelect.querySelector('option[data-voice-name="' + this.voice.name + '"]');
+                            if (selectedOption) {
+                                selectedOption.selected = true;
+                            }
+                        }
+                    } catch (error) {
+                        log('Error populating voice list: ' + error.message);
+                    }
+                }
+                
+                // Helper to get readable language names
+                getLanguageName(langCode) {
+                    const langNames = {
+                        'en-US': 'English (US)',
+                        'en-GB': 'English (UK)',
+                        'en-AU': 'English (Australia)',
+                        'en-IN': 'English (India)',
+                        'en-CA': 'English (Canada)',
+                        'fr-FR': 'French',
+                        'es-ES': 'Spanish',
+                        'de-DE': 'German',
+                        'it-IT': 'Italian',
+                        'ja-JP': 'Japanese',
+                        'ko-KR': 'Korean',
+                        'zh-CN': 'Chinese (Simplified)',
+                        'zh-TW': 'Chinese (Traditional)',
+                        'ru-RU': 'Russian',
+                        'pt-BR': 'Portuguese (Brazil)',
+                        'pt-PT': 'Portuguese (Portugal)',
+                        'nl-NL': 'Dutch',
+                        'pl-PL': 'Polish',
+                        'sv-SE': 'Swedish',
+                        'tr-TR': 'Turkish'
+                    };
+                    
+                    return langNames[langCode] || langCode;
                 }
                 
                 setupUIEvents() {
@@ -522,11 +671,133 @@ function getTTSPanelContent() {
                         return;
                     }
                     
-                    updateStatus(\`Speaking: \${text.substring(0, 50)}...\`);
+                    updateStatus('Speaking: ' + text.substring(0, 50) + '...');
                     log('Speaking text: ' + text.substring(0, 30) + '...');
+                    
+                    // Force browser to accept audio
+                    try {
+                        // Create an AudioContext to "warm up" audio
+                        const audioCtx = new (window.AudioContext || window['webkitAudioContext'])();
+                        const silence = audioCtx.createBuffer(1, 1, 22050);
+                        const source = audioCtx.createBufferSource();
+                        source.buffer = silence;
+                        source.connect(audioCtx.destination);
+                        source.start(0);
+                        
+                        log('Audio context initialized');
+                    } catch (e) {
+                        log('Audio warm-up failed: ' + e.message);
+                    }
+                    
+                    // Ensure we have a voice
+                    if (!this.voice && this.voices.length > 0) {
+                        this.voice = this.voices[0];
+                        log('Selected default voice: ' + this.voice.name);
+                    }
+                    
+                    // Extra logging for speech synthesis state
+                    log('Speech state before speaking - Voices: ' + this.voices.length + 
+                        ', Current voice: ' + (this.voice ? this.voice.name : 'none'));
                     
                     this.textQueue = this.segmentText(text);
                     this.speakNextSegment();
+                    
+                    // Ensure speech started by checking after a short delay
+                    setTimeout(() => {
+                        if (!this.synth.speaking && !this.synth.pending) {
+                            log('WARNING: Speech didn\'t start properly, trying alternate method');
+                            this.tryAlternateSpeechMethod(text);
+                        }
+                    }, 500);
+                }
+                
+                tryAlternateSpeechMethod(text) {
+                    log('Attempting alternate speech method');
+                    
+                    try {
+                        // Create a completely new utterance
+                        const utterance = new SpeechSynthesisUtterance(text);
+                        
+                        // Try without setting voice (use system default)
+                        utterance.rate = this.rate;
+                        utterance.pitch = this.pitch;
+                        utterance.volume = this.volume;
+                        
+                        utterance.onend = () => {
+                            log('Alternate speech completed');
+                            updateStatus('TTS service running. Waiting for AI responses...');
+                        };
+                        
+                        utterance.onerror = (e) => {
+                            log('Alternate speech error: ' + e.error);
+                            this.showSpeechTroubleshooting();
+                        };
+                        
+                        // Force a cancel first
+                        this.synth.cancel();
+                        
+                        // Speak without using the queue
+                        window.speechSynthesis.speak(utterance);
+                        log('Alternate speech method initiated');
+                    } catch (e) {
+                        log('Alternate speech method failed: ' + e.message);
+                        this.showSpeechTroubleshooting();
+                    }
+                }
+                
+                showSpeechTroubleshooting() {
+                    log('Showing troubleshooting info for speech issues');
+                    updateStatus('Speech synthesis failed. See troubleshooting steps below.');
+                    
+                    // Create troubleshooting panel
+                    const container = document.createElement('div');
+                    container.style.marginTop = '15px';
+                    container.style.padding = '10px';
+                    container.style.border = '1px solid var(--vscode-editor-lineHighlightBorder)';
+                    container.style.borderRadius = '3px';
+                    
+                    const heading = document.createElement('h3');
+                    heading.textContent = 'Speech Synthesis Troubleshooting';
+                    container.appendChild(heading);
+                    
+                    const para1 = document.createElement('p');
+                    para1.textContent = 'Your browser\'s speech synthesis seems to be unavailable or restricted:';
+                    container.appendChild(para1);
+                    
+                    const ul = document.createElement('ul');
+                    
+                    const li1 = document.createElement('li');
+                    li1.textContent = 'Make sure your system has voices installed (detected: ' + this.voices.length + ')';
+                    ul.appendChild(li1);
+                    
+                    const li2 = document.createElement('li');
+                    li2.textContent = 'Check your system volume is turned up';
+                    ul.appendChild(li2);
+                    
+                    const li3 = document.createElement('li');
+                    li3.textContent = 'Some browsers require user interaction before allowing audio';
+                    ul.appendChild(li3);
+                    
+                    const li4 = document.createElement('li');
+                    li4.textContent = 'Try restarting Cursor completely';
+                    ul.appendChild(li4);
+                    
+                    const li5 = document.createElement('li');
+                    li5.textContent = 'Check if your system\'s text-to-speech works in other applications';
+                    ul.appendChild(li5);
+                    
+                    container.appendChild(ul);
+                    
+                    const para2 = document.createElement('p');
+                    para2.textContent = 'You might need to enable speech synthesis in your browser\'s settings.';
+                    container.appendChild(para2);
+                    
+                    // Add to DOM
+                    const statusElement = document.getElementById('status');
+                    if (statusElement && !document.getElementById('troubleshooting')) {
+                        container.id = 'troubleshooting';
+                        statusElement.parentNode.insertBefore(container, statusElement.nextSibling);
+                    }
                 }
                 
                 speakNextSegment() {
@@ -542,12 +813,21 @@ function getTTSPanelContent() {
                     
                     if (this.voice) {
                         utterance.voice = this.voice;
+                        log('Using voice: ' + this.voice.name + ' for speech');
+                    } else {
+                        log('WARNING: No voice selected for speech');
                     }
+                    
                     utterance.rate = this.rate;
                     utterance.pitch = this.pitch;
                     utterance.volume = this.volume;
                     
+                    utterance.onstart = () => {
+                        log('Speech started');
+                    };
+                    
                     utterance.onend = () => {
+                        log('Speech segment ended');
                         if (this.textQueue.length > 0) {
                             this.speakNextSegment();
                         } else {
@@ -559,14 +839,26 @@ function getTTSPanelContent() {
                     
                     utterance.onerror = (event) => {
                         console.error('SpeechSynthesis error:', event);
-                        updateStatus(\`Error: \${event.error}\`);
+                        updateStatus('Error: ' + event.error);
                         log('Speech error: ' + event.error);
                         this.isSpeaking = false;
+                        
+                        // Show troubleshooting if we get an error
+                        if (event.error !== 'canceled') {
+                            this.showSpeechTroubleshooting();
+                        }
                     };
                     
                     this.currentUtterance = utterance;
                     this.isSpeaking = true;
-                    this.synth.speak(utterance);
+                    
+                    try {
+                        log('Attempting to speak');
+                        this.synth.speak(utterance);
+                    } catch (e) {
+                        log('Exception trying to speak: ' + e.message);
+                        this.tryAlternateSpeechMethod(text);
+                    }
                 }
                 
                 pause() {
@@ -860,7 +1152,7 @@ function getTTSPanelContent() {
                 if (ttsService.synth) {
                     vscode.postMessage({
                         command: 'debug', 
-                        text: \`Speaking: \${ttsService.synth.speaking}, Paused: \${ttsService.synth.paused}, Pending: \${ttsService.synth.pending}\`
+                        text: 'Speaking: ' + ttsService.synth.speaking + ', Paused: ' + ttsService.synth.paused + ', Pending: ' + ttsService.synth.pending
                     });
                 }
             }, 5000);
