@@ -144,5 +144,6 @@
     "ai",
     "assistant"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "icon": "cursor-ai-tts.webp"
 } 
