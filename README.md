@@ -66,4 +66,68 @@ This extension contributes the following settings:
 
 ## License
 
-This extension is licensed under the [MIT License](LICENSE).
+This extension is licensed under the [MIT License](LICENSE)
+
+## Chat Interface Integration
+
+To hear responses from the Cursor AI chat interface, you can create a custom script to send AI responses to the TTS extension. Here's how:
+
+1. **Create a Script in the Chat Browser Environment:**
+   Open the developer console in the chat interface (F12 or Right-Click -> Inspect) and paste this script:
+
+   ```javascript
+   // Observer for Cursor AI Chat interface
+   (function() {
+     console.log('[Cursor AI TTS] Setting up chat observer');
+     
+     // Create a mutation observer to watch for AI responses
+     const observer = new MutationObserver(mutations => {
+       // Look for AI responses in the chat
+       const aiMessages = document.querySelectorAll(
+         '.chat-message-ai, .agent-turn, .cursor-chat-message-ai, .claude-message, ' +
+         '.message-block[data-message-author-type="ai"], .chat-entry[data-role="assistant"]'
+       );
+       
+       if (aiMessages.length > 0) {
+         // Get the last (newest) message
+         const lastMessage = aiMessages[aiMessages.length - 1];
+         
+         // Extract text content
+         const messageText = lastMessage.textContent.trim();
+         
+         if (messageText && messageText.length > 10) {
+           console.log('[Cursor AI TTS] Found AI response');
+           
+           // Send to VS Code extension via vscode.postMessage
+           try {
+             // Execute the command to send the text to the TTS extension
+             // This works because the chat interface is in the VS Code webview context
+             window.vscode.postMessage({
+               command: 'executeCommand',
+               commandId: 'cursor-ai-tts.aiResponseDetected',
+               args: [messageText]
+             });
+             console.log('[Cursor AI TTS] Sent message to extension');
+           } catch (e) {
+             console.error('[Cursor AI TTS] Error sending message to extension:', e);
+           }
+         }
+       }
+     });
+     
+     // Start observing the document
+     observer.observe(document.body, {
+       childList: true,
+       subtree: true,
+       characterData: true
+     });
+     
+     console.log('[Cursor AI TTS] Chat observer started');
+   })();
+   ```
+
+2. **Alternative Method for Chat Detection:**
+   If the above script doesn't work, you can manually copy AI responses and use the "Read Last AI Response" command from the command palette.
+
+3. **Requesting Extension API Access:**
+   We're working on better integration with the Cursor AI chat interface. Future versions may include direct integration without requiring custom scripts.

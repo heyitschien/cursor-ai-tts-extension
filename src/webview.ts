@@ -1,6 +1,148 @@
 import * as vscode from 'vscode';
 import { getNonce, getWebviewResourceUri } from './utils';
 
+// Add the chat observer script that will be injected into chat panels
+export function getChatObserverScript(): string {
+  return `
+    (function() {
+      // Check if observer is already running to avoid duplicates
+      if (window.__cursorTTSObserverRunning) return;
+      window.__cursorTTSObserverRunning = true;
+      
+      console.log('[Cursor AI TTS] Chat observer script injected');
+      
+      // Setup message handler for communication from extension
+      window.addEventListener('message', event => {
+        const message = event.data;
+        
+        if (message && message.command === 'injectObserver') {
+          setupChatObserver(message.selectors || [
+            '.chat-message-ai', 
+            '.agent-turn', 
+            '.cursor-chat-message-ai',
+            '.claude-message',
+            '.message-block[data-message-author-type="ai"]',
+            '.chat-entry[data-role="assistant"]'
+          ]);
+        }
+      });
+      
+      // Function to detect and process AI responses
+      function setupChatObserver(selectors) {
+        console.log('[Cursor AI TTS] Setting up chat observer with selectors:', selectors);
+        
+        // Function to get text content from AI messages
+        function extractTextFromNode(node) {
+          // Skip if this is a user message
+          if (
+            node.classList.contains('chat-message-user') || 
+            node.classList.contains('chat-entry-user') ||
+            node.getAttribute('data-message-author-type') === 'user' ||
+            node.getAttribute('data-role') === 'user'
+          ) {
+            return '';
+          }
+          
+          // Clone the node to work with
+          const clone = node.cloneNode(true);
+          
+          // Find and remove code blocks if present (we'll handle them separately)
+          const codeBlocks = clone.querySelectorAll('pre, code');
+          const codeTexts = [];
+          
+          codeBlocks.forEach(block => {
+            // Optionally capture code text to mention it later
+            codeTexts.push('Code block: ' + block.textContent.substring(0, 50) + '...');
+            block.textContent = 'Code block removed for speech';
+          });
+          
+          // Extract the text content
+          let text = clone.textContent || '';
+          
+          // Clean up the text
+          text = text.replace(/\\s+/g, ' ').trim();
+          
+          return text;
+        }
+        
+        // Track processed nodes to avoid duplicates
+        const processedNodes = new Set();
+        
+        // Create a mutation observer to watch for AI responses
+        const observer = new MutationObserver(mutations => {
+          let newAIMessage = false;
+          let messageText = '';
+          
+          // Check if any selectors match existing elements
+          selectors.forEach(selector => {
+            try {
+              const elements = document.querySelectorAll(selector);
+              if (elements.length > 0) {
+                // Get the last (newest) element
+                const lastElement = elements[elements.length - 1];
+                
+                // Skip if we've already processed this node
+                if (!processedNodes.has(lastElement)) {
+                  processedNodes.add(lastElement);
+                  const text = extractTextFromNode(lastElement);
+                  if (text && text.length > 10) {  // Avoid empty or very short messages
+                    newAIMessage = true;
+                    messageText = text;
+                    console.log('[Cursor AI TTS] Found new AI message with selector: ' + selector);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('[Cursor AI TTS] Error with selector ' + selector, err);
+            }
+          });
+          
+          // If we found a new message, send it to the extension
+          if (newAIMessage && messageText) {
+            console.log('[Cursor AI TTS] Sending AI response to extension');
+            window.vscode.postMessage({
+              command: 'aiResponseDetected',
+              text: messageText
+            });
+          }
+        });
+        
+        // Start observing the document
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true
+        });
+        
+        console.log('[Cursor AI TTS] Chat observer started');
+        
+        // Also check for existing messages
+        selectors.forEach(selector => {
+          try {
+            const elements = document.querySelectorAll(selector);
+            if (elements.length > 0) {
+              // Get the last (newest) element
+              const lastElement = elements[elements.length - 1];
+              const text = extractTextFromNode(lastElement);
+              if (text && text.length > 10) {
+                console.log('[Cursor AI TTS] Found existing AI message with selector: ' + selector);
+                processedNodes.add(lastElement);
+                window.vscode.postMessage({
+                  command: 'aiResponseDetected',
+                  text: text
+                });
+              }
+            }
+          } catch (err) {
+            console.error('[Cursor AI TTS] Error with selector ' + selector, err);
+          }
+        });
+      }
+    })();
+  `;
+}
+
 export function getWebviewContent(
   webview: vscode.Webview,
   context: vscode.ExtensionContext,
@@ -13,6 +155,142 @@ export function getWebviewContent(
   }
 ): string {
   const nonce = getNonce();
+
+  // Add the forceSpeech function to the webview script
+  const forceSpeechFunction = `
+    // Force speech function for reliable TTS
+    function forceSpeech(text) {
+      try {
+        log('Force speech called with text length: ' + text.length);
+        requestAudioPermissions();
+        
+        // Process text if filtering is enabled
+        const processedText = filterCodeCheckbox.checked ? 
+          text.replace(/\`\`\`[\\s\\S]*?\`\`\`/g, 'Code block skipped.').replace(/\`[^\`]+\`/g, 'Inline code skipped.') : 
+          text;
+        
+        // Create utterance
+        const utterance = new SpeechSynthesisUtterance(processedText);
+        
+        // Set voice if selected
+        if (voiceSelect.value) {
+          const voice = voices.find(v => v.name === voiceSelect.value);
+          if (voice) {
+            utterance.voice = voice;
+            log('Using voice: ' + voice.name);
+          } else {
+            log('Selected voice not found: ' + voiceSelect.value);
+          }
+        }
+        
+        // If still no voice set and we have voices available, use first one
+        if (!utterance.voice && voices.length > 0) {
+          utterance.voice = voices[0];
+          log('Using default voice: ' + voices[0].name);
+        }
+        
+        // Set speech properties
+        utterance.rate = parseFloat(rateSlider.value);
+        utterance.pitch = parseFloat(pitchSlider.value);
+        utterance.volume = parseFloat(volumeSlider.value);
+        
+        // Set event handlers
+        utterance.onstart = () => log('Force speech started');
+        utterance.onend = () => log('Force speech ended');
+        utterance.onerror = (event) => log('Force speech error: ' + event.error);
+        
+        // Cancel any ongoing speech
+        synth.cancel();
+        
+        // If text is long, break into smaller chunks
+        if (processedText.length > 500) {
+          const chunks = processedText.match(/[^.!?]+[.!?]+/g) || [processedText];
+          log('Breaking long text into ' + chunks.length + ' chunks');
+          
+          // Speak first chunk and set up queue for the rest
+          let currentChunk = 0;
+          const speakNextChunk = () => {
+            if (currentChunk < chunks.length) {
+              const chunkUtterance = new SpeechSynthesisUtterance(chunks[currentChunk]);
+              if (utterance.voice) chunkUtterance.voice = utterance.voice;
+              chunkUtterance.rate = utterance.rate;
+              chunkUtterance.pitch = utterance.pitch;
+              chunkUtterance.volume = utterance.volume;
+              chunkUtterance.onend = () => {
+                currentChunk++;
+                speakNextChunk();
+              };
+              log('Speaking chunk ' + (currentChunk + 1) + ' of ' + chunks.length);
+              synth.speak(chunkUtterance);
+            }
+          };
+          
+          speakNextChunk();
+        } else {
+          // For shorter text, just speak directly
+          synth.speak(utterance);
+        }
+        
+        return true;
+      } catch (e) {
+        log('Error in forceSpeech: ' + e.message);
+        return false;
+      }
+    }
+  `;
+
+  // Update handleMessages to include the forceSpeech case
+  const messageHandlerCode = `
+    // Handle messages from extension
+    window.addEventListener('message', event => {
+      const message = event.data;
+      
+      switch (message.command) {
+        case 'speak':
+          log('Received speak command with text length: ' + message.text.length);
+          vscode.postMessage({
+            command: 'speakText',
+            text: message.text
+          });
+          break;
+          
+        case 'forceSpeech':
+          log('Received forceSpeech command with text length: ' + message.text.length);
+          forceSpeech(message.text);
+          break;
+          
+        case 'updateStatus':
+          updateStatus(message.text);
+          break;
+          
+        case 'readLastResponse':
+          log('Received readLastResponse command');
+          vscode.postMessage({
+            command: 'readLastResponse'
+          });
+          break;
+          
+        case 'updateSettings':
+          log('Received updated settings');
+          currentSettings = message.settings;
+          rateSlider.value = currentSettings.rate;
+          rateValue.textContent = currentSettings.rate;
+          pitchSlider.value = currentSettings.pitch;
+          pitchValue.textContent = currentSettings.pitch;
+          volumeSlider.value = currentSettings.volume;
+          volumeValue.textContent = currentSettings.volume;
+          filterCodeCheckbox.checked = currentSettings.filterCodeBlocks;
+          selectUserVoice(currentSettings.voice);
+          break;
+          
+        case 'updateVoices':
+          log('Received voice update with ' + message.voices.length + ' voices');
+          voices = message.voices;
+          updateVoicesList(voices);
+          break;
+      }
+    });
+  `;
 
   // Add debug functionality to track visibility issues
   return '<!DOCTYPE html>\n' +
@@ -374,6 +652,7 @@ export function getWebviewContent(
     '        synth.cancel(); // Cancel any ongoing speech\n' +
     '        synth.speak(utterance);\n' +
     '      }\n' +
+    forceSpeechFunction +
     '      \n' +
     '      // Save settings back to extension configuration\n' +
     '      function saveSettings() {\n' +
@@ -392,51 +671,7 @@ export function getWebviewContent(
     '          settings: currentSettings\n' +
     '        });\n' +
     '      }\n' +
-    '      \n' +
-    '      // Handle messages from extension\n' +
-    '      window.addEventListener(\'message\', event => {\n' +
-    '        const message = event.data;\n' +
-    '        \n' +
-    '        switch (message.command) {\n' +
-    '          case \'speak\':\n' +
-    '            log(\'Received speak command with text length: \' + message.text.length);\n' +
-    '            vscode.postMessage({\n' +
-    '              command: \'speakText\',\n' +
-    '              text: message.text\n' +
-    '            });\n' +
-    '            break;\n' +
-    '            \n' +
-    '          case \'updateStatus\':\n' +
-    '            updateStatus(message.text);\n' +
-    '            break;\n' +
-    '            \n' +
-    '          case \'readLastResponse\':\n' +
-    '            log(\'Received readLastResponse command\');\n' +
-    '            vscode.postMessage({\n' +
-    '              command: \'readLastResponse\'\n' +
-    '            });\n' +
-    '            break;\n' +
-    '            \n' +
-    '          case \'updateSettings\':\n' +
-    '            log(\'Received updated settings\');\n' +
-    '            currentSettings = message.settings;\n' +
-    '            rateSlider.value = currentSettings.rate;\n' +
-    '            rateValue.textContent = currentSettings.rate;\n' +
-    '            pitchSlider.value = currentSettings.pitch;\n' +
-    '            pitchValue.textContent = currentSettings.pitch;\n' +
-    '            volumeSlider.value = currentSettings.volume;\n' +
-    '            volumeValue.textContent = currentSettings.volume;\n' +
-    '            filterCodeCheckbox.checked = currentSettings.filterCodeBlocks;\n' +
-    '            selectUserVoice(currentSettings.voice);\n' +
-    '            break;\n' +
-    '            \n' +
-    '          case \'updateVoices\':\n' +
-    '            log(\'Received voice update with \' + message.voices.length + \' voices\');\n' +
-    '            voices = message.voices;\n' +
-    '            updateVoicesList(voices);\n' +
-    '            break;\n' +
-    '        }\n' +
-    '      });\n' +
+    messageHandlerCode +
     '      \n' +
     '      // UI event handlers\n' +
     '      testVoiceButton.addEventListener(\'click\', testVoice);\n' +

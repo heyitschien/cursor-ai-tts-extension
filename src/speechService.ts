@@ -159,6 +159,119 @@ export class SpeechService {
     } catch (e) {
       const error = e as Error;
       this.updateStatus(`Error in test voice: ${error.message}`);
+      // Try the force speech method as fallback
+      this.forceSpeech(testText);
+    }
+  }
+
+  // Improved force speech method for more reliable speech synthesis
+  public forceSpeech(text: string): void {
+    if (!text || text.trim() === '') {
+      this.updateStatus('No text to speak');
+      return;
+    }
+    
+    try {
+      this.updateStatus('Attempting force speech with length: ' + text.length);
+      
+      // Process text to filter code blocks if needed
+      const processedText = this.filterCodeBlocks ? this.processText(text) : text;
+      
+      // Create a fresh audio context to force permissions
+      this.requestAudioPermissions().then(() => {
+        if (!this.synth) {
+          this.updateStatus('Speech synthesis not available for force speech');
+          return;
+        }
+        
+        // Create a fresh utterance
+        const utterance = new SpeechSynthesisUtterance(processedText);
+        
+        // Find the best voice to use
+        this.updateStatus('Finding voice for force speech');
+        let voice: SpeechSynthesisVoice | undefined;
+        
+        // First try the selected voice
+        if (this.selectedVoice && this.voices.length > 0) {
+          voice = this.voices.find(v => 
+            v.name === this.selectedVoice || 
+            v.voiceURI === this.selectedVoice
+          );
+        }
+        
+        // If no selected voice, or selection not found, pick any available voice
+        if (!voice && this.voices.length > 0) {
+          // Try to find a good default voice (usually English)
+          voice = this.voices.find(v => 
+            v.lang.includes('en') || 
+            v.name.includes('English')
+          );
+          
+          // If still no voice, just use the first one
+          if (!voice) {
+            voice = this.voices[0];
+          }
+        }
+        
+        // Set the voice if we found one
+        if (voice) {
+          utterance.voice = voice;
+          this.updateStatus(`Force speech using voice: ${voice.name}`);
+        } else {
+          this.updateStatus('No voice available for force speech, using browser default');
+        }
+        
+        // Set speech properties
+        utterance.rate = this.rate;
+        utterance.pitch = this.pitch;
+        utterance.volume = this.volume;
+        
+        // Set up detailed event listeners for debugging
+        utterance.onstart = () => {
+          this.updateStatus('Force speech started');
+        };
+        
+        utterance.onend = () => {
+          this.updateStatus('Force speech ended');
+        };
+        
+        utterance.onerror = (event) => {
+          this.updateStatus(`Force speech error: ${event.error}`);
+        };
+        
+        // Cancel any ongoing speech and speak the new utterance
+        this.synth.cancel();
+        
+        // Chrome/Edge fix - break text into smaller chunks if it's long
+        if (processedText.length > 500) {
+          this.updateStatus('Breaking long text into chunks for force speech');
+          const chunks = this.splitTextIntoChunks(processedText, 200);
+          
+          // Queue up all chunks
+          this.textQueue = chunks;
+          this.speakNextSegment();
+        } else {
+          // For shorter text, just speak directly
+          this.synth.speak(utterance);
+          
+          // Chrome/Edge fix: keep speech synthesis active on long utterances
+          if (processedText.length > 100) {
+            this.updateStatus('Setting up keep-alive for force speech');
+            const keepAliveInterval = setInterval(() => {
+              if (this.synth && this.synth.speaking) {
+                this.synth.pause();
+                this.synth.resume();
+                this.updateStatus('Force speech keep-alive ping');
+              } else {
+                clearInterval(keepAliveInterval);
+              }
+            }, 10000);
+          }
+        }
+      });
+    } catch (e) {
+      const error = e as Error;
+      this.updateStatus(`Force speech exception: ${error.message}`);
     }
   }
 

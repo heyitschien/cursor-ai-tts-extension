@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getWebviewContent } from './webview';
+import { getWebviewContent, getChatObserverScript } from './webview';
 import { getConfiguration, logDebug, showInfo } from './utils';
 
 // Store global state
@@ -42,22 +42,47 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('cursor-ai-tts.readLastResponse', () => {
-            if (ttsPanel) {
-                ttsPanel.webview.postMessage({
-                    command: 'readLastResponse'
-                });
-            } else if (ttsEnabled) {
-                ensureTTSPanelExists(context);
-                // Delay to ensure panel is created before sending command
-                setTimeout(() => {
-                    if (ttsPanel) {
-                        ttsPanel.webview.postMessage({
-                            command: 'readLastResponse'
-                        });
-                    }
-                }, 1000);
+            // Try to get text from the last AI response
+            if (lastAIResponseText) {
+                if (ttsPanel) {
+                    // Use the forceSpeech method
+                    ttsPanel.webview.postMessage({
+                        command: 'forceSpeech',
+                        text: lastAIResponseText
+                    });
+                } else if (ttsEnabled) {
+                    ensureTTSPanelExists(context);
+                    // Delay to ensure panel is created before sending command
+                    setTimeout(() => {
+                        if (ttsPanel) {
+                            ttsPanel.webview.postMessage({
+                                command: 'forceSpeech',
+                                text: lastAIResponseText
+                            });
+                        }
+                    }, 1000);
+                }
             } else {
-                showInfo('Text-to-Speech is disabled. Enable it first or use the "Enable Text-to-Speech" command.');
+                // Show a message to the user
+                showInfo('No AI response detected. Try sending a message to the AI assistant first.');
+            }
+        })
+    );
+
+    // Register a command to receive AI responses from chat interface
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cursor-ai-tts.aiResponseDetected', (text: string) => {
+            if (text && text.length > 10) {
+                logDebug(`Received AI response from chat interface: ${text.substring(0, 50)}...`);
+                lastAIResponseText = text;
+                
+                // If TTS is enabled and we have a panel, speak it
+                if (ttsEnabled && ttsPanel) {
+                    ttsPanel.webview.postMessage({
+                        command: 'forceSpeech',
+                        text: text
+                    });
+                }
             }
         })
     );
@@ -65,11 +90,6 @@ export function activate(context: vscode.ExtensionContext) {
     // Start listening for AI assistant responses and initialize the TTS panel if enabled
     if (ttsEnabled) {
         ensureTTSPanelExists(context);
-    }
-
-    // Set up event listeners for the active editor
-    if (vscode.window.activeTextEditor) {
-        logDebug('Active editor detected at startup');
     }
 
     // Listen for text document changes

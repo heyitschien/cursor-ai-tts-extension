@@ -31,6 +31,10 @@
       {
         "command": "cursor-ai-tts.readLastResponse",
         "title": "Read Last AI Response"
+      },
+      {
+        "command": "cursor-ai-tts.aiResponseDetected",
+        "title": "AI Response Detected (Internal)"
       }
     ],
     "configuration": {
