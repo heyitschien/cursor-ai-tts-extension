@@ -3,6 +3,7 @@
   "displayName": "Cursor AI TTS",
   "description": "Text-to-Speech for Cursor AI responses",
   "version": "0.1.0",
+  "icon": "cursor-ai-tts.webp",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -144,6 +145,5 @@
     "ai",
     "assistant"
   ],
-  "license": "MIT",
-  "icon": "cursor-ai-tts.webp"
+  "license": "MIT"
 } 
