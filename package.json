@@ -1,0 +1,102 @@
+{
+  "name": "cursor-ai-tts",
+  "displayName": "Cursor AI TTS",
+  "description": "Text-to-Speech for Cursor AI responses",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "publisher": "cursor-ai-tts",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursor-ai-tts.enable",
+        "title": "Enable Text-to-Speech for AI Responses"
+      },
+      {
+        "command": "cursor-ai-tts.disable",
+        "title": "Disable Text-to-Speech for AI Responses"
+      },
+      {
+        "command": "cursor-ai-tts.showSettings",
+        "title": "Show Text-to-Speech Settings"
+      }
+    ],
+    "configuration": {
+      "title": "Cursor AI TTS",
+      "properties": {
+        "cursor-ai-tts.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable text-to-speech for AI responses"
+        },
+        "cursor-ai-tts.voice": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred voice for text-to-speech (leave empty for default)"
+        },
+        "cursor-ai-tts.rate": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Speech rate (0.5 to 2.0)"
+        },
+        "cursor-ai-tts.pitch": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Speech pitch (0.5 to 2.0)"
+        },
+        "cursor-ai-tts.filterCodeBlocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip code blocks when reading AI responses"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.70.0",
+    "@types/node": "^16.11.7",
+    "@types/mocha": "^9.1.1",
+    "@types/glob": "^7.2.0",
+    "@typescript-eslint/eslint-plugin": "^5.42.0",
+    "@typescript-eslint/parser": "^5.42.0",
+    "eslint": "^8.26.0",
+    "glob": "^8.0.3",
+    "mocha": "^10.0.0",
+    "typescript": "^4.8.4",
+    "@vscode/test-electron": "^2.1.5",
+    "vsce": "^2.11.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/cursor-ai-tts.git"
+  },
+  "keywords": [
+    "cursor",
+    "text-to-speech",
+    "tts",
+    "ai",
+    "assistant"
+  ],
+  "license": "MIT"
+} 
